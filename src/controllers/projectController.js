@@ -2,6 +2,7 @@ const Projects = require("../models/Projects");
 const Users = require("../models/Users");
 
 const { successResponse, errorResponse } = require("../utils/response");
+const uploadToImageKit = require("../utils/uploadToImageKit");
 
 const getProjectData = async (req, res) => {
   try {
@@ -153,11 +154,15 @@ const addProject = async (req, res) => {
     // ===== Handle Uploaded Attachments =====
     let formattedAttachments = [];
     if (req.files && req.files.length > 0) {
-      formattedAttachments = req.files.map((file) => ({
-        name: file.originalname,
-        url: `uploads/${file.filename}`, // or your cloud URL
-        uploadedAt: new Date(),
-      }));
+      for (let file of req.files) {
+        const uploaded = await uploadToImageKit(file);
+
+        formattedAttachments.push({
+          name: file.originalname,
+          url: uploaded.url, // ⬅ ImageKit file URL
+          uploadedAt: new Date(),
+        });
+      }
     }
 
     // ===== Final Project Data =====
@@ -255,15 +260,17 @@ const updateProjectById = async (req, res) => {
     }
 
     // ===== Handle Uploaded Attachments =====
-    if (req.files && req.files.length > 0) {
-      const uploadedFiles = req.files.map((file) => ({
-        name: file.originalname,
-        url: `uploads/${file.filename}`, // or your actual cloud URL
-        uploadedAt: new Date(),
-      }));
 
-      // merge with existing attachments
-      data.attachments = [...(project.attachments || []), ...uploadedFiles];
+    if (req.files && req.files.length > 0) {
+      for (let file of req.files) {
+        const uploaded = await uploadToImageKit(file);
+
+        data.attachments.push({
+          name: file.originalname,
+          url: uploaded.url, // ⬅ ImageKit file URL
+          uploadedAt: new Date(),
+        });
+      }
     }
 
     // ===== Metadata =====
