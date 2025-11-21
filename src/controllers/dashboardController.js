@@ -6,6 +6,21 @@ const Contracts = require("../models/Contracts");
 const Invoice = require("../models/Invoice");
 const { successResponse, errorResponse } = require("../utils/response");
 const { addTimeHours, toDecimalHours } = require("../utils/Halpers");
+const { convertToINR } = require("../utils/currencyConverter");
+
+function formatNumber(num) {
+  if (!num) return "0";
+
+  if (num >= 1_000_000_000)
+    return (num / 1_000_000_000).toFixed(2).replace(/\.00$/, "") + "B";
+
+  if (num >= 1_000_000)
+    return (num / 1_000_000).toFixed(2).replace(/\.00$/, "") + "M";
+
+  if (num >= 1_000) return (num / 1_000).toFixed(2).replace(/\.00$/, "") + "K";
+
+  return num.toFixed(2).replace(/\.00$/, "");
+}
 
 // ✅ Admin Dashboard Controller
 exports.getAdminDashboard = async (req, res) => {
@@ -42,17 +57,19 @@ exports.getAdminDashboard = async (req, res) => {
     ]);
 
     // 💰 Revenue Overview
-    const invoiceAmounts = await Invoice.aggregate([
-      { $match: { isDeleted: false } },
-      { $group: { _id: "$status", totalAmount: { $sum: "$amount" } } },
-    ]);
+    let paidAmount = 0;
+    let pendingAmount = 0;
+    let overdueAmount = 0;
 
-    const paidAmount =
-      invoiceAmounts.find((i) => i._id === "Paid")?.totalAmount || 0;
-    const pendingAmount =
-      invoiceAmounts.find((i) => i._id === "Pending")?.totalAmount || 0;
-    const overdueAmount =
-      invoiceAmounts.find((i) => i._id === "Overdue")?.totalAmount || 0;
+    const allInvoices = await Invoice.find({ isDeleted: false });
+
+    for (const inv of allInvoices) {
+      const inr = await convertToINR(inv.amount, inv.currency);
+
+      if (inv.status === "Paid") paidAmount += inr;
+      if (inv.status === "Pending") pendingAmount += inr;
+      if (inv.status === "Overdue") overdueAmount += inr;
+    }
 
     // =============================
     // 🧩 B. PROJECT INSIGHTS
@@ -189,42 +206,45 @@ exports.getAdminDashboard = async (req, res) => {
     // =============================
 
     // Monthly Revenue (Paid Invoices)
-    const monthlyRevenue = await Invoice.aggregate([
-      { $match: { status: "Paid", isDeleted: false } },
+    const paidInvoices = await Invoice.find({
+      status: "Paid",
+      isDeleted: false,
+    }).sort({ issueDate: 1 });
 
-      {
-        $group: {
-          _id: {
-            monthNumber: { $month: "$issueDate" }, // 1-12
-            monthName: { $dateToString: { format: "%b", date: "$issueDate" } }, // "Jan", "Feb", etc.
-          },
-          total: { $sum: "$amount" },
-        },
-      },
+    const monthlyMap = {};
 
-      // ✅ Sort by monthNumber, not alphabetically
-      { $sort: { "_id.monthNumber": 1 } },
+    for (const inv of paidInvoices) {
+      const month = inv.issueDate.toLocaleString("en-US", { month: "short" });
+      const inr = await convertToINR(inv.amount, inv.currency);
 
-      // ✅ Optional: reshape output for chart
-      {
-        $project: {
-          _id: 0,
-          month: "$_id.monthName",
-          total: 1,
-        },
-      },
-    ]);
+      monthlyMap[month] = (monthlyMap[month] || 0) + inr;
+    }
+
+    const monthlyRevenue = Object.keys(monthlyMap).map((month) => ({
+      month,
+      total: monthlyMap[month],
+    }));
 
     // Outstanding Payments
     const outstandingPayments = pendingAmount + overdueAmount;
 
     // Top Clients by revenue
-    const topClients = await Invoice.aggregate([
-      { $match: { status: "Paid", isDeleted: false } },
-      { $group: { _id: "$clientName", totalPaid: { $sum: "$amount" } } },
-      { $sort: { totalPaid: -1 } },
-      { $limit: 5 },
-    ]);
+    const paidInv = await Invoice.find({ status: "Paid", isDeleted: false });
+
+    const clientMap = {};
+
+    for (const inv of paidInv) {
+      const inr = await convertToINR(inv.amount, inv.currency);
+      clientMap[inv.clientName] = (clientMap[inv.clientName] || 0) + inr;
+    }
+
+    const topClients = Object.entries(clientMap)
+      .map(([client, totalPaid]) => ({
+        _id: client,
+        totalPaid: formatNumber(totalPaid),
+      }))
+      .sort((a, b) => b.totalPaid - a.totalPaid)
+      .slice(0, 5);
 
     // Contracts nearing end date (within 15 days)
     const soonEndingContracts = await Contracts.find({
@@ -274,10 +294,10 @@ exports.getAdminDashboard = async (req, res) => {
         contractStatus,
         invoiceStatus,
         revenue: {
-          paidAmount,
-          pendingAmount,
-          overdueAmount,
-          outstanding: outstandingPayments,
+          paidAmount: formatNumber(paidAmount),
+          pendingAmount: formatNumber(pendingAmount),
+          overdueAmount: formatNumber(overdueAmount),
+          outstanding: formatNumber(outstandingPayments),
         },
       },
       projectInsights,
@@ -288,7 +308,7 @@ exports.getAdminDashboard = async (req, res) => {
       },
       financials: {
         monthlyRevenue,
-        outstandingPayments,
+        outstandingPayments: formatNumber(outstandingPayments),
         topClients,
         soonEndingContracts,
       },
