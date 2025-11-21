@@ -151,7 +151,7 @@ const forgotPass = async (req, res) => {
 
     return successResponse(res, "Password reset link sent to your email.");
   } catch (err) {
-    return errorResponse(res, `Server error : ${err}`);
+    return errorResponse(res, `Server error : ${err.message}`);
   }
 };
 
@@ -159,13 +159,15 @@ const resetPassword = async (req, res) => {
   try {
     const { token } = req.params;
     const { password } = req.body;
-
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
     const user = await User.findById(decoded.id);
     if (!user) return errorResponse(res, "Invalid or expired token.");
 
-    user.password = password; // Make sure your model hashes password
+    // Hash password
+    const hashedPassword = bcrypt.hashSync(password, 10);
+
+    user.password = hashedPassword; // Make sure your model hashes password
     await user.save();
 
     return successResponse(res, "Password reset successful.");

@@ -360,8 +360,6 @@ const updateWorkLog = async (req, res) => {
       runValidators: true,
     }).populate("developer", "email firstName lastName");
 
-    console.log("updates", updatedLog);
-
     return successResponse(res, "Work log updated successfully!", updatedLog);
   } catch (error) {
     return errorResponse(res, error.message, error);

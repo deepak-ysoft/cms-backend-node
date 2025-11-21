@@ -13,6 +13,7 @@ const {
 const {
   startContractDeadlineChecker,
 } = require("./cron/contractDeadlineChecker");
+const { startInvoiceOverdueChecker } = require("./cron/invoiceOverdueChecker");
 
 const PORT = process.env.PORT || 1100;
 
@@ -22,4 +23,5 @@ server.listen(PORT, "0.0.0.0", () => {
   // Start cron job
   startProjectDeadlineChecker();
   startContractDeadlineChecker();
+  startInvoiceOverdueChecker();
 });

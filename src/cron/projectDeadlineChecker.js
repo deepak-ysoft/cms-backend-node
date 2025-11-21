@@ -1,51 +1,42 @@
 // /cron/projectDeadlineChecker.js
 const cron = require("node-cron");
-const Projects = require("../models/Projects");
 const Notification = require("../models/Notification");
-const { notifyRole } = require("../services/notificationService");
+const { notifyRole, notifyProjectTeam } = require("../services/notificationService");
+const Projects = require("../models/Projects");
 
-// ================================
-// EXPORT FUNCTION PROPERLY
-// ================================
-async function startProjectDeadlineChecker() {
-  console.log("⏱ Project Deadline Cron Jobs Started");
-
-  // Daily Cron — runs every day at 9 AM
-  cron.schedule("0 9 * * *", async () => {
-    await checkDailyDeadlineAlerts();
-  });
-
-  // Hourly Cron — runs every hour
-  cron.schedule("0 * * * *", async () => {
-    await checkHourlyDeadlineAlerts();
-  });
+function startProjectDeadlineChecker() {
+  cron.schedule("0 9 * * *", checkDailyDeadlineAlerts); // daily at 09:00
+  cron.schedule("0 * * * *", checkHourlyDeadlineAlerts); // hourly at :00
 }
 
-// ================================
-// DAILY ALERT (5–1 Days Before)
-// ================================
+function getDayRange(date) {
+  const start = new Date(date);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(date);
+  end.setHours(23, 59, 59, 999);
+  return { start, end };
+}
+
+// -----------------------------------------------------
+// DAILY (5–1 days) — formal corporate messages
+// -----------------------------------------------------
 async function checkDailyDeadlineAlerts() {
   try {
-    console.log("🔍 Running Daily Deadline Check (5–1 days)");
-
-    const now = new Date();
+    const today = new Date();
 
     for (let days = 5; days >= 1; days--) {
-      const start = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
-      const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+      const targetDate = new Date(today.getTime() + days * 86400000);
+      const { start, end } = getDayRange(targetDate);
 
       const projects = await Projects.find({
         status: "Active",
         isDeleted: false,
-        deadline: { $gte: start, $lt: end },
+        deadline: { $gte: start, $lte: end },
       }).lean();
 
-      if (!projects.length) continue;
-
       for (const project of projects) {
-        const alertType = `${days}-days-left`;
+        const alertType = `project-${days}-days-left`;
 
-        // prevent duplicates
         const exists = await Notification.findOne({
           "meta.projectId": project._id,
           "meta.alertType": alertType,
@@ -53,50 +44,58 @@ async function checkDailyDeadlineAlerts() {
 
         if (exists) continue;
 
-        const title = `Project Deadline Alert: ${days} Day(s) Left`;
-        const message = `The project "${
+        const title = `Project Deadline — ${days} Day(s) Remaining`;
+        const message = `Dear team,
+
+This is an automated reminder that the project "${
           project.name
-        }" will reach its deadline on ${project.deadline.toLocaleString()}.`;
+        }" is scheduled to reach its deadline in ${days} day(s), on ${new Date(
+          project.deadline
+        ).toLocaleString()}.
+
+Please ensure all outstanding deliverables are reviewed and that any risks are escalated to the project manager immediately.`;
 
         await notifyRole(
           "Admin",
           title,
           message,
-          {
-            projectId: project._id,
-            alertType,
-          },
-          "system"
+          { projectId: project._id, alertType },
+          "info"
         );
-
-        console.log(`📢 SENT: ${alertType} for ${project.name}`);
+        await notifyProjectTeam(
+          project._id,
+          title,
+          message,
+          { alertType },
+          "info"
+        );
       }
     }
   } catch (err) {
-    console.error("❌ Daily Cron Error:", err);
+    console.error("❌ Daily Project Deadline Error:", err);
   }
 }
 
-// ================================
-// HOURLY ALERT (Last 24 Hours)
-// ================================
+// -----------------------------------------------------
+// HOURLY LAST-DAY + IMMEDIATE STATUS CHANGES (H1)
+// - Send hourly notifications for projects with deadline today.
+// - If a project's deadline already passed, mark project as Pushed and notify.
+// -----------------------------------------------------
 async function checkHourlyDeadlineAlerts() {
   try {
-    console.log("⏱ Running Hourly Deadline Check");
-
     const now = new Date();
-    const nextHour = new Date(now.getTime() + 60 * 60 * 1000);
+    const { start, end } = getDayRange(now);
 
-    const projects = await Projects.find({
+    // 1) Projects with deadline today -> send hourly reminders (once per hour)
+    const todaysProjects = await Projects.find({
       status: "Active",
       isDeleted: false,
-      deadline: { $gte: now, $lt: nextHour },
+      deadline: { $gte: start, $lte: end },
     }).lean();
 
-    for (const project of projects) {
-      const alertType = "hourly-last-day";
+    for (const project of todaysProjects) {
+      const alertType = "project-hourly-last-day";
 
-      // prevent multiple notifications in the same hour
       const exists = await Notification.findOne({
         "meta.projectId": project._id,
         "meta.alertType": alertType,
@@ -105,30 +104,81 @@ async function checkHourlyDeadlineAlerts() {
 
       if (exists) continue;
 
-      const title = "Project Deadline Alert: Final Hours";
-      const message = `The project "${
+      const title = "Project Deadline — Today (Hourly Reminder)";
+      const message = `Dear team,
+
+This is an automated hourly reminder that the project "${
         project.name
-      }" will reach its deadline at ${project.deadline.toLocaleTimeString()}.`;
+      }" will reach its deadline today (${new Date(
+        project.deadline
+      ).toLocaleString()}).
+
+Please verify task completion status and escalate any unresolved issues to the project manager immediately.`;
 
       await notifyRole(
         "Admin",
         title,
         message,
-        {
-          projectId: project._id,
-          alertType,
-        },
-        "system"
+        { projectId: project._id, alertType },
+        "warning"
       );
+      await notifyProjectTeam(
+        project._id,
+        title,
+        message,
+        { alertType },
+        "warning"
+      );
+    }
 
-      console.log(`⏳ HOURLY ALERT SENT for project: ${project.name}`);
+    // 2) Projects whose deadline has already passed -> immediately set to Pushed and notify
+    const overdueProjects = await Projects.find({
+      status: "Active",
+      isDeleted: false,
+      deadline: { $lt: now },
+    }).lean();
+
+    for (const project of overdueProjects) {
+      // Prevent repeated pushes if some other process already updated
+      // (we check status still Active above)
+     
+      await Projects.findByIdAndUpdate(project._id, { status: "Pushed" });
+
+      const titleTeam = "Project Status Updated — Pushed (Deadline Passed)";
+      const messageTeam = `Dear team,
+
+The scheduled deadline for project "${project.name}" (${new Date(
+        project.deadline
+      ).toLocaleString()}) has passed. As an automated measure, the project status has been updated to *Pushed*.
+
+Please pause new development work, review remaining deliverables, and coordinate with stakeholders to determine next steps. If this change was made in error, please contact administration to reverse it.`;
+
+      const titleAdmin =
+        "Project Automatically Marked as Pushed — Deadline Missed";
+      const messageAdmin = `Attention Admins,
+
+Project "${project.name}" (ID: ${project._id}) has surpassed its deadline and was automatically updated to status *Pushed*.
+
+Action recommended: review the project, reassign resources if required, and liaise with the project manager.`;
+
+      await notifyProjectTeam(
+        project._id,
+        titleTeam,
+        messageTeam,
+        { projectId: project._id },
+        "warning"
+      );
+      await notifyRole(
+        "Admin",
+        titleAdmin,
+        messageAdmin,
+        { projectId: project._id },
+        "warning"
+      );
     }
   } catch (err) {
-    console.error("❌ Hourly Cron Error:", err);
+    console.error("❌ Hourly Project Deadline Error:", err);
   }
 }
 
-// ==================================
-// EXPORT CORRECTLY
-// ==================================
 module.exports = { startProjectDeadlineChecker };

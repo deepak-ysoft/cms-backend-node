@@ -238,7 +238,6 @@ const updateUsersData = async (req, res) => {
 
     // ----- Handle Image -----
     const oldUser = await Users.findById(id);
-    console.log("req.file ", req.file);
     if (req.file ) {
       const uploaded = await uploadToImageKit(req?.file);
       data.profileImage = uploaded.url;

@@ -1,20 +1,25 @@
-const sgMail = require("@sendgrid/mail");
+const nodemailer = require("nodemailer");
 
-sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_SERVER,
+  port: process.env.SMTP_PORT,
+  secure: false,
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+});
 
 module.exports.sendResetEmail = async (to, subject, html) => {
-  const msg = {
-    to,
-    from: process.env.SENDGRID_FROM, // verified send email
-    subject,
-    html,
-  };
-
   try {
-    await sgMail.send(msg);
+    await transporter.sendMail({
+      from: process.env.SMTP_FROM, // MUST be inquiry@ysoftsolution.com
+      to,
+      subject,
+      html,
+    });
   } catch (error) {
-    console.error("SendGrid Error:", error);
-    if (error.response) console.error(error.response.body);
+    console.error("SMTP Error:", error);
     throw new Error("Failed to send reset email");
   }
 };

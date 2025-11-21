@@ -1,48 +1,50 @@
 // /cron/contractDeadlineChecker.js
 const cron = require("node-cron");
 const Contracts = require("../models/Contracts");
+const Projects = require("../models/Projects");
 const Notification = require("../models/Notification");
-const { notifyRole } = require("../services/notificationService");
 
-// ================================
-// EXPORT FUNCTION
-// ================================
-async function startContractDeadlineChecker() {
-  console.log("⏱ Contract Deadline Cron Job Started");
+const {
+  notifyRole,
+  notifyProjectTeam,
+  notifyContractStatus,
+} = require("../services/notificationService");
 
-  // Daily at 9:00 AM
-  cron.schedule("0 9 * * *", async () => {
-    await checkContractDailyAlerts();
-  });
+function startContractDeadlineChecker() {
 
-  // Hourly for last day
-  cron.schedule("0 * * * *", async () => {
-    await checkContractHourlyAlerts();
-  });
+  cron.schedule("0 9 * * *", checkContractDailyAlerts); // daily 09:00
+  cron.schedule("0 * * * *", checkContractHourlyAlerts); // hourly :00
 }
 
-// ================================
-// DAILY ALERT (5–1 Days Before)
-// ================================
+function getDayRange(date) {
+  const start = new Date(date);
+  start.setHours(0, 0, 0, 0);
+
+  const end = new Date(date);
+  end.setHours(23, 59, 59, 999);
+
+  return { start, end };
+}
+
+// -----------------------------------------------------
+// DAILY ALERTS (5–1 days before end date) — formal
+// -----------------------------------------------------
 async function checkContractDailyAlerts() {
   try {
-    console.log("🔍 Running Daily Contract Deadline Check");
 
-    const now = new Date();
+    const today = new Date();
 
     for (let days = 5; days >= 1; days--) {
-      const start = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
-      const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+      const targetDate = new Date(today.getTime() + days * 86400000);
+      const { start, end } = getDayRange(targetDate);
 
       const contracts = await Contracts.find({
-        status: "Active",
+        status: { $in: ["Active"] },
         isDeleted: false,
-        endDate: { $gte: start, $lt: end },
+        endDate: { $gte: start, $lte: end },
       })
-        .populate("project", "name")
+        .populate("project")
         .lean();
-
-      if (!contracts.length) continue;
 
       for (const contract of contracts) {
         const alertType = `contract-${days}-days-left`;
@@ -54,10 +56,18 @@ async function checkContractDailyAlerts() {
 
         if (exists) continue;
 
-        const title = `Contract Ending Soon – ${days} Day(s) Left`;
-        const message = `The contract "${contract.contractName}" for project "${
-          contract.project?.name
-        }" will end on ${contract.endDate.toLocaleString()}.`;
+        const projectName = contract.project?.name || "Unknown Project";
+
+        const title = `Contract Ending — ${days} Day(s) Remaining`;
+        const message = `Dear team,
+
+This is an automated reminder that the contract "${
+          contract.contractName
+        }" for project "${projectName}" is scheduled to end in ${days} day(s), on ${new Date(
+          contract.endDate
+        ).toLocaleString()}.
+
+Please confirm deliverables, finalize invoices, and communicate any risks to the project manager or administration.`;
 
         await notifyRole(
           "Admin",
@@ -68,41 +78,46 @@ async function checkContractDailyAlerts() {
             projectId: contract.project?._id,
             alertType,
           },
-          "system"
+          "info"
         );
-
-        console.log(
-          `📢 SENT contract alert (${alertType}) for ${contract.contractName}`
-        );
+        if (contract.project?._id) {
+          await notifyProjectTeam(
+            contract.project._id,
+            title,
+            message,
+            { contractId: contract._id, alertType },
+            "info"
+          );
+        }
       }
     }
   } catch (err) {
-    console.error("❌ Contract Daily Cron Error:", err);
+    console.error("❌ Daily Contract Cron Error:", err);
   }
 }
 
-// ================================
-// HOURLY ALERT (Last 24 Hours)
-// ================================
+// -----------------------------------------------------
+// HOURLY ALERTS (last day) + IMMEDIATE STATUS CHANGES (H1)
+// - Send hourly reminders for contracts ending today
+// - If a contract's endDate has passed, update contract -> Ended and project -> Pushed immediately
+// -----------------------------------------------------
 async function checkContractHourlyAlerts() {
   try {
-    console.log("⏱ Running Hourly Contract Deadline Check");
-
     const now = new Date();
-    const nextHour = new Date(now.getTime() + 60 * 60 * 1000);
+    const { start, end } = getDayRange(now);
 
-    const contracts = await Contracts.find({
-      status: "Active",
+    // 1) Contracts ending today → hourly reminders
+    const todaysContracts = await Contracts.find({
+      status: { $in: ["Active"] },
       isDeleted: false,
-      endDate: { $gte: now, $lt: nextHour },
+      endDate: { $gte: start, $lte: end },
     })
-      .populate("project", "name")
+      .populate("project")
       .lean();
 
-    for (const contract of contracts) {
-      const alertType = "contract-hourly-final-day";
+    for (const contract of todaysContracts) {
+      const alertType = "contract-hourly-last-day";
 
-      // prevent multiple per hour
       const exists = await Notification.findOne({
         "meta.contractId": contract._id,
         "meta.alertType": alertType,
@@ -111,10 +126,18 @@ async function checkContractHourlyAlerts() {
 
       if (exists) continue;
 
-      const title = "Contract Ending Today – Final Hours";
-      const message = `The contract "${contract.contractName}" for project "${
-        contract.project?.name
-      }" will end at ${contract.endDate.toLocaleTimeString()}.`;
+      const projectName = contract.project?.name || "Unknown Project";
+
+      const title = "Contract Ending — Today (Hourly Reminder)";
+      const message = `Dear team,
+
+This is an automated hourly reminder that the contract "${
+        contract.contractName
+      }" for project "${projectName}" will end today (${new Date(
+        contract.endDate
+      ).toLocaleString()}).
+
+Please ensure all final deliverables and billing are in order and escalate any unresolved items to the project manager.`;
 
       await notifyRole(
         "Admin",
@@ -125,15 +148,82 @@ async function checkContractHourlyAlerts() {
           projectId: contract.project?._id,
           alertType,
         },
-        "system"
+        "warning"
+      );
+      if (contract.project?._id) {
+        await notifyProjectTeam(
+          contract.project._id,
+          title,
+          message,
+          { contractId: contract._id, alertType },
+          "warning"
+        );
+      }
+    }
+
+    // 2) Contracts past endDate → immediately mark Ended and push project
+    const expiredContracts = await Contracts.find({
+      status: { $in: ["Active"] },
+      isDeleted: false,
+      endDate: { $lt: now },
+    })
+      .populate("project")
+      .lean();
+
+    for (const contract of expiredContracts) {
+      const project = contract.project;
+     
+      // Update contract status to Ended
+      await Contracts.findByIdAndUpdate(contract._id, { status: "Ended" });
+
+      // Update project status to Pushed if not already
+      if (project && project._id && project.status !== "Pushed") {
+        await Projects.findByIdAndUpdate(project._id, { status: "Pushed" });
+      }
+
+      // Prepare formal messages
+      const titleTeam =
+        "Contract Automatically Ended — Project Marked as Pushed";
+      const messageTeam = `Dear team,
+
+The contract "${contract.contractName}" for project "${
+        project?.name || "Unknown"
+      }" has reached its end date and was automatically marked as *Ended*. Consequently, the related project has been set to *Pushed*.
+
+Please review any outstanding items, complete administrative closure, and coordinate next steps with stakeholders.`;
+
+      const titleAdmin = "Contract Auto-Ended — Action Recommended";
+      const messageAdmin = `Attention Admins,
+
+Contract "${contract.contractName}" (ID: ${
+        contract._id
+      }) has passed its scheduled end date and was automatically marked as *Ended*. The associated project "${
+        project?.name || "Unknown"
+      }" has been updated to *Pushed*.
+
+Action recommended: review contract closure and advise project manager on next steps.`;
+
+      if (project && project._id) {
+        await notifyProjectTeam(
+          project._id,
+          titleTeam,
+          messageTeam,
+          { contractId: contract._id },
+          "warning"
+        );
+      }
+      await notifyRole(
+        "Admin",
+        titleAdmin,
+        messageAdmin,
+        { contractId: contract._id },
+        "warning"
       );
 
-      console.log(`⏳ HOURLY contract alert sent for ${contract.contractName}`);
     }
   } catch (err) {
-    console.error("❌ Contract Hourly Cron Error:", err);
+    console.error("❌ Hourly Contract Cron Error:", err);
   }
 }
 
-// EXPORT
 module.exports = { startContractDeadlineChecker };
