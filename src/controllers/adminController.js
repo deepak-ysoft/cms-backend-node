@@ -1,6 +1,7 @@
 const Users = require("../models/Users");
 const bcrypt = require("bcrypt");
 const { successResponse, errorResponse } = require("../utils/response");
+const uploadToImageKit = require("../utils/uploadToImageKit");
 
 const getUsersData = async (req, res) => {
   try {
@@ -167,8 +168,9 @@ const addUser = async (req, res) => {
     }
 
     // ----- Handle Image Upload -----
-    if (req.file && req.file.path) {
-      data.profileImage = `uploads/${req.file.filename}`;
+    if (req.file ) {
+      const uploaded = await uploadToImageKit(req.file);
+      data.profileImage = uploaded.url;
     }
 
     data.password = bcrypt.hashSync(data.password, 10);
@@ -236,9 +238,10 @@ const updateUsersData = async (req, res) => {
 
     // ----- Handle Image -----
     const oldUser = await Users.findById(id);
-
-    if (req.file && req.file.path) {
-      data.profileImage = `uploads/${req.file.filename}`;
+    console.log("req.file ", req.file);
+    if (req.file ) {
+      const uploaded = await uploadToImageKit(req?.file);
+      data.profileImage = uploaded.url;
     } else {
       data.profileImage = oldUser.profileImage;
     }

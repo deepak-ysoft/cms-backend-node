@@ -260,16 +260,31 @@ const updateProjectById = async (req, res) => {
     }
 
     // ===== Handle Uploaded Attachments =====
-
     if (req.files && req.files.length > 0) {
-      for (let file of req.files) {
-        const uploaded = await uploadToImageKit(file);
+      // Initialize attachments array if it doesn't exist
+      if (!data.attachments) {
+        data.attachments = [];
+      }
 
-        data.attachments.push({
-          name: file.originalname,
-          url: uploaded.url, // ⬅ ImageKit file URL
-          uploadedAt: new Date(),
-        });
+      for (let file of req.files) {
+        try {
+          const uploaded = await uploadToImageKit(file);
+
+          data.attachments.push({
+            name: file.originalname,
+            url: uploaded.url, // ⬅ ImageKit file URL
+            uploadedAt: new Date(),
+          });
+        } catch (uploadError) {
+          console.error(
+            "Upload error for file:",
+            file.originalname,
+            uploadError
+          );
+          throw new Error(
+            `Failed to upload file ${file.originalname}: ${uploadError.message}`
+          );
+        }
       }
     }
 

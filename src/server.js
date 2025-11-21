@@ -14,7 +14,7 @@ const {
   startContractDeadlineChecker,
 } = require("./cron/contractDeadlineChecker");
 
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 1100;
 
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Server running at port ${PORT}`);

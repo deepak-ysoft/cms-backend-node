@@ -3,6 +3,7 @@ const Projects = require("../models/Projects");
 const { successResponse, errorResponse } = require("../utils/response");
 const multer = require("multer");
 const Users = require("../models/Users");
+const uploadToImageKit = require("../utils/uploadToImageKit");
 const upload = multer({ dest: "uploads/" });
 
 // ✅ Add Work Log
@@ -73,6 +74,7 @@ const addWorkLog = async (req, res) => {
       calculatedHours = total;
     }
 
+    const uploaded = await uploadToImageKit(req?.file);
     const workLog = new WorkLogs({
       project: projectId,
       developer: req.user.id,
@@ -85,7 +87,7 @@ const addWorkLog = async (req, res) => {
       status,
       isBillable,
       projectPhase,
-      attachments: req?.file?.path ? req.file.path.replace(/\\/g, "/") : null,
+      attachments: uploaded.url,
     });
 
     await workLog.save();
@@ -278,7 +280,6 @@ const getWorkLogsById = async (req, res) => {
     // 🔹 If no record found
     if (!log) return errorResponse(res, "Work log not found");
 
-    const baseUrl = process.env.BASE_URL || "http://localhost:5000";
     const data = {
       id: log._id,
       title: log.title,
@@ -296,7 +297,7 @@ const getWorkLogsById = async (req, res) => {
       description: log.description,
       isBillable: log.isBillable,
       projectPhase: log.projectPhase,
-      attachments: log.attachments ? `${baseUrl}/${log.attachments}` : null,
+      attachments: log.attachments,
       createdAt: log.createdAt,
     };
 
@@ -327,7 +328,8 @@ const updateWorkLog = async (req, res) => {
 
     // ✅ File replacement if new one uploaded
     if (req.file) {
-      updates.attachments = req.file.path.replace(/\\/g, "/");
+      const uploaded = await uploadToImageKit(req?.file);
+      updates.attachments = uploaded.url;
     }
 
     // ⏱ Calculate hours

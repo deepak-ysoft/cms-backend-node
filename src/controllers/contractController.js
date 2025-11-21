@@ -1,6 +1,7 @@
 const Contracts = require("../models/Contracts");
 const Projects = require("../models/Projects");
 const { successResponse, errorResponse } = require("../utils/response");
+const uploadToImageKit = require("../utils/uploadToImageKit");
 
 /**
  * Add new contract
@@ -40,7 +41,7 @@ const addContracts = async (req, res) => {
         res,
         "A contract with this name already exists for this project."
       );
-
+    const uploaded = await uploadToImageKit(req?.file);
     // ✅ Create contract base object
     const newContract = new Contracts({
       project: projectId,
@@ -49,7 +50,7 @@ const addContracts = async (req, res) => {
       billingType: billingType || "Fixed",
       startDate,
       endDate,
-      fileUrl: req.file.path.replace(/\\/g, "/"),
+      fileUrl: uploaded.url,
       uploadedBy: req.user.id,
     });
 
@@ -77,11 +78,7 @@ const addContracts = async (req, res) => {
       .populate("uploadedBy", "firstName lastName")
       .populate("developersWork.developer", "firstName lastName email");
 
-    const baseUrl = process.env.BASE_URL || "http://localhost:5000";
-    const data = populatedContract.toObject();
-    data.fileUrl = `${baseUrl}/${data.fileUrl}`;
-
-    successResponse(res, "Contract added successfully!", data);
+    successResponse(res, "Contract added successfully!", populatedContract);
   } catch (error) {
     console.error("Error adding contract:", error);
     errorResponse(res, error.message, error);
@@ -162,7 +159,8 @@ const updateContract = async (req, res) => {
 
     // ✅ File replacement if new one uploaded
     if (req.file) {
-      contract.fileUrl = req.file.path.replace(/\\/g, "/");
+      const uploaded = await uploadToImageKit(req.file);
+      contract.fileUrl = uploaded.url;
     }
 
     // ✅ Save updated contract
@@ -250,9 +248,6 @@ const getContracts = async (req, res) => {
       .skip(skip)
       .limit(Number(limit));
 
-    // 🔹 Prepare response data
-    const baseUrl = process.env.BASE_URL || "http://localhost:5000";
-
     const formatDateDisplay = (date) =>
       new Date(date).toLocaleDateString("en-GB", {
         day: "2-digit",
@@ -268,7 +263,7 @@ const getContracts = async (req, res) => {
       projectId: contract.project._id,
       projectName: contract.project.name,
       adminName: `${contract.uploadedBy.firstName} ${contract.uploadedBy.lastName}`,
-      fileUrl: `${baseUrl}/${contract.fileUrl}`,
+      fileUrl: contract.fileUrl,
       contractName: contract.contractName,
       currency: contract.currency,
       billingType: contract.billingType,
@@ -330,14 +325,12 @@ const getContractsByProject = async (req, res) => {
         hour12: true,
       });
 
-    const baseUrl = process.env.BASE_URL || "http://localhost:5000";
-
     const data = contracts.map((contract) => ({
       id: contract._id,
       projectId: contract.project._id,
       projectName: contract.project.name,
       adminName: `${contract.uploadedBy.firstName} ${contract.uploadedBy.lastName}`,
-      fileUrl: `${baseUrl}/${contract.fileUrl}`,
+      fileUrl: contract.fileUrl,
       contractName: contract.contractName,
       currency: contract.currency,
       billingType: contract.billingType,
@@ -384,8 +377,6 @@ const getContractById = async (req, res) => {
         hour12: true,
       });
 
-    const baseUrl = process.env.BASE_URL || "http://localhost:5000";
-
     const data = {
       id: contract._id,
       project: {
@@ -403,7 +394,7 @@ const getContractById = async (req, res) => {
       },
       contractName: contract.contractName,
       billingType: contract.billingType,
-      fileUrl: `${baseUrl}/${contract.fileUrl}`,
+      fileUrl: contract.fileUrl,
       currency: contract.currency,
       fixedAmount: contract.fixedAmount,
       totalAmount: contract.totalAmount,
