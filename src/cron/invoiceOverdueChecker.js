@@ -100,7 +100,7 @@ This requires immediate attention to prevent further delays.
           projectId: invoice.project?._id,
           alertType,
         },
-        "warning"
+        "system"
       );
 
       // -------------------------------------------------------
@@ -117,7 +117,7 @@ This requires immediate attention to prevent further delays.
             projectId: invoice.project?._id,
             alertType,
           },
-          "warning"
+          "system"
         );
       }
 

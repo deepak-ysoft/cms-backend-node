@@ -78,7 +78,7 @@ Please confirm deliverables, finalize invoices, and communicate any risks to the
             projectId: contract.project?._id,
             alertType,
           },
-          "info"
+          "system"
         );
         if (contract.project?._id) {
           await notifyProjectTeam(
@@ -86,7 +86,7 @@ Please confirm deliverables, finalize invoices, and communicate any risks to the
             title,
             message,
             { contractId: contract._id, alertType },
-            "info"
+            "system"
           );
         }
       }
@@ -148,7 +148,7 @@ Please ensure all final deliverables and billing are in order and escalate any u
           projectId: contract.project?._id,
           alertType,
         },
-        "warning"
+        "system"
       );
       if (contract.project?._id) {
         await notifyProjectTeam(
@@ -156,7 +156,7 @@ Please ensure all final deliverables and billing are in order and escalate any u
           title,
           message,
           { contractId: contract._id, alertType },
-          "warning"
+          "system"
         );
       }
     }
@@ -209,7 +209,7 @@ Action recommended: review contract closure and advise project manager on next s
           titleTeam,
           messageTeam,
           { contractId: contract._id },
-          "warning"
+          "system"
         );
       }
       await notifyRole(
@@ -217,7 +217,7 @@ Action recommended: review contract closure and advise project manager on next s
         titleAdmin,
         messageAdmin,
         { contractId: contract._id },
-        "warning"
+        "system"
       );
 
     }

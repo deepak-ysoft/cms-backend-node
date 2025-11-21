@@ -60,14 +60,14 @@ Please ensure all outstanding deliverables are reviewed and that any risks are e
           title,
           message,
           { projectId: project._id, alertType },
-          "info"
+          "system"
         );
         await notifyProjectTeam(
           project._id,
           title,
           message,
           { alertType },
-          "info"
+          "system"
         );
       }
     }
@@ -120,14 +120,14 @@ Please verify task completion status and escalate any unresolved issues to the p
         title,
         message,
         { projectId: project._id, alertType },
-        "warning"
+        "system"
       );
       await notifyProjectTeam(
         project._id,
         title,
         message,
         { alertType },
-        "warning"
+        "system"
       );
     }
 
@@ -166,14 +166,14 @@ Action recommended: review the project, reassign resources if required, and liai
         titleTeam,
         messageTeam,
         { projectId: project._id },
-        "warning"
+        "system"
       );
       await notifyRole(
         "Admin",
         titleAdmin,
         messageAdmin,
         { projectId: project._id },
-        "warning"
+        "system"
       );
     }
   } catch (err) {

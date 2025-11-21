@@ -125,7 +125,7 @@ Action suggested: review the contract and project status, and confirm if any man
         titleTeam,
         messageTeam,
         { contractId: contract._id },
-        "warning"
+        "system"
       );
     }
 
@@ -134,7 +134,7 @@ Action suggested: review the contract and project status, and confirm if any man
       titleAdmin,
       messageAdmin,
       { contractId: contract._id },
-      "warning"
+      "system"
     );
 
     return; // stop further processing for this contract
@@ -172,7 +172,7 @@ Action suggested: review cancelled contract details and coordinate next steps wi
         titleTeam,
         messageTeam,
         { contractId: contract._id },
-        "warning"
+        "system"
       );
     }
     await notifyRole(
@@ -180,7 +180,7 @@ Action suggested: review cancelled contract details and coordinate next steps wi
       titleAdmin,
       messageAdmin,
       { contractId: contract._id },
-      "warning"
+      "system"
     );
 
     return;

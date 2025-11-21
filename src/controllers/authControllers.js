@@ -49,7 +49,15 @@ const loginUser = async (req, res) => {
 
 const registerUser = async (req, res) => {
   try {
-    const { firstName, lastName, email, password, role } = req.body;
+    const {
+      firstName,
+      lastName,
+      email,
+      password,
+      role,
+      experience,
+      department,
+    } = req.body;
 
     // Manual validation
     if (!firstName || firstName.length < 2)
@@ -84,6 +92,8 @@ const registerUser = async (req, res) => {
       email,
       password: hashedPassword,
       role,
+      experience,
+      department,
     });
 
     await user.save();
